@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AssemblyGuard — Live Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+
+<style>
+:root {
+  --bg:       #080b11;
+  --surf:     #0d1119;
+  --card:     #111720;
+  --border:   #1c2535;
+  --accent:   #00e5ff;
+  --green:    #00e676;
+  --red:      #ff1744;
+  --amber:    #ffc400;
+  --muted:    #3d4f68;
+  --dim:      #6b7e99;
+  --text:     #dde6f5;
+  --mono:     'JetBrains Mono', monospace;
+  --sans:     'Syne', sans-serif;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;overflow:hidden}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* ── Animations ── */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes blink{0%,100%{box-shadow:0 0 0 0 rgba(255,23,68,.5)}60%{box-shadow:0 0 0 10px rgba(255,23,68,0)}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes glow{0%,100%{text-shadow:0 0 8px rgba(0,229,255,.4)}50%{text-shadow:0 0 18px rgba(0,229,255,.9)}}
+@keyframes scan{0%{top:-5%}100%{top:105%}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes barGrow{from{width:0}to{width:var(--w)}}
+
+/* ── Layout ── */
+#app{display:flex;height:100vh;overflow:hidden}
+
+/* ── Sidebar ── */
+#sidebar{
+  width:210px;min-width:210px;background:var(--surf);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;padding:0;
+  z-index:10;
+}
+.logo{
+  padding:22px 20px 18px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+}
+.logo-icon{
+  width:34px;height:34px;background:linear-gradient(135deg,#00e5ff22,#00e5ff44);
+  border:1px solid var(--accent);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;font-size:18px;
+}
+.logo-text{font-size:16px;font-weight:800;letter-spacing:-.3px}
+.logo-sub{font-size:10px;color:var(--dim);font-family:var(--mono);margin-top:1px}
+
+nav{padding:12px 10px;flex:1;display:flex;flex-direction:column;gap:3px}
+.nav-item{
+  display:flex;align-items:center;gap:10px;padding:9px 12px;
+  border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;
+  color:var(--dim);transition:all .15s;border:none;background:transparent;
+  font-family:var(--sans);width:100%;text-align:left;
+}
+.nav-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.nav-item.active{background:rgba(0,229,255,.1);color:var(--accent);border:1px solid rgba(0,229,255,.15)}
+.nav-item .icon{font-size:16px;width:20px;text-align:center}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;font-family:var(--mono)}
+
+.sidebar-footer{
+  padding:14px 14px 18px;border-top:1px solid var(--border);
+}
+.user-chip{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:rgba(255,255,255,.03);border-radius:8px;border:1px solid var(--border);
+  margin-bottom:10px;
+}
+.user-avatar{
+  width:28px;height:28px;border-radius:50%;
+  background:linear-gradient(135deg,var(--accent),var(--green));
+  display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#000;
+}
+.user-name{font-size:12px;font-weight:600}
+.user-role{font-size:10px;color:var(--dim)}
+.btn-logout{
+  width:100%;padding:7px;background:transparent;border:1px solid var(--border);
+  border-radius:7px;color:var(--dim);font-family:var(--sans);font-size:12px;
+  cursor:pointer;transition:all .15s;
+}
+.btn-logout:hover{border-color:var(--red);color:var(--red)}
+
+/* ── Main ── */
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Topbar ── */
+#topbar{
+  background:var(--surf);border-bottom:1px solid var(--border);
+  padding:13px 24px;display:flex;justify-content:space-between;align-items:center;
+  flex-shrink:0;
+}
+.page-title{font-size:18px;font-weight:800;letter-spacing:-.4px}
+.topbar-right{display:flex;align-items:center;gap:14px}
+.live-chip{
+  display:flex;align-items:center;gap:6px;padding:5px 12px;
+  background:rgba(0,230,118,.08);border:1px solid rgba(0,230,118,.2);
+  border-radius:20px;font-size:11px;font-weight:600;color:var(--green);
+  font-family:var(--mono);
+}
+.live-dot{
+  width:7px;height:7px;border-radius:50%;background:var(--green);
+  animation:pulse 1.8s infinite;
+}
+.alert-chip{
+  display:flex;align-items:center;gap:6px;padding:5px 12px;
+  background:rgba(255,23,68,.1);border:1px solid rgba(255,23,68,.25);
+  border-radius:20px;font-size:11px;font-weight:700;color:var(--red);
+  animation:blink 2s infinite;
+}
+.time-display{font-family:var(--mono);font-size:12px;color:var(--dim)}
+
+/* ── Content ── */
+#content{flex:1;overflow-y:auto;padding:22px 24px}
+
+/* ── Stat cards ── */
+.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.stat-card{
+  background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:16px 18px;position:relative;overflow:hidden;
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:var(--accent-c,var(--accent));opacity:.6;
+}
+.stat-label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
+.stat-value{font-size:30px;font-weight:800;font-family:var(--mono);color:var(--accent-c,var(--text));line-height:1;margin-bottom:4px;animation:glow 3s infinite}
+.stat-sub{font-size:11px;color:var(--dim)}
+
+/* ── Station card ── */
+.station-grid{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:20px}
+.station-card{
+  background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:16px 18px;transition:border-color .2s,transform .2s;
+}
+.station-card:hover{transform:translateY(-1px);border-color:var(--muted)}
+.station-card.anomaly{border-color:rgba(255,23,68,.35);animation:blink 2.5s infinite}
+.station-card.ok{border-color:rgba(0,230,118,.2)}
+.station-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.station-name{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.status-pill{
+  padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;
+  font-family:var(--mono);letter-spacing:.4px;
+}
+.pill-ok{background:rgba(0,230,118,.12);color:var(--green);border:1px solid rgba(0,230,118,.3)}
+.pill-anomaly{background:rgba(255,23,68,.12);color:var(--red);border:1px solid rgba(255,23,68,.3);animation:blink 2s infinite}
+.pill-idle{background:rgba(74,85,104,.15);color:var(--muted);border:1px solid var(--border)}
+
+.station-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+.metric-box{background:var(--surf);border-radius:8px;padding:8px 12px}
+.metric-lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.metric-val{font-size:18px;font-weight:700;font-family:var(--mono)}
+
+.parts-row{display:flex;gap:8px;flex-wrap:wrap}
+.part-tag{
+  font-size:11px;background:rgba(255,255,255,.05);color:var(--dim);
+  padding:3px 10px;border-radius:6px;border:1px solid var(--border);font-family:var(--mono);
+}
+.part-tag b{color:var(--text)}
+
+.issues-box{
+  margin-top:10px;padding:8px 12px;background:rgba(255,23,68,.07);
+  border:1px solid rgba(255,23,68,.2);border-radius:8px;
+}
+.issue-item{font-size:12px;color:var(--red);display:flex;align-items:center;gap:6px}
+.issue-item::before{content:'▸';font-size:10px}
+
+/* ── Charts ── */
+.chart-grid{display:grid;grid-template-columns:2fr 1fr;gap:14px;margin-bottom:20px}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.chart-title{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px}
+.bar-chart{display:flex;align-items:flex-end;gap:5px;height:70px}
+.bar-wrap{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+.bar{
+  width:100%;border-radius:3px 3px 0 0;transition:height .4s ease;min-height:2px;
+}
+.bar-lbl{font-size:9px;color:var(--muted);font-family:var(--mono);white-space:nowrap}
+
+.donut-wrap{display:flex;align-items:center;justify-content:center;gap:18px}
+.donut{width:90px;height:90px}
+.donut-legend{display:flex;flex-direction:column;gap:8px}
+.legend-item{display:flex;align-items:center;gap:8px;font-size:12px}
+.legend-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+
+/* ── Anomaly log ── */
+.log-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.log-header{
+  padding:12px 18px;border-bottom:1px solid var(--border);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.log-title{font-size:13px;font-weight:700}
+.log-count{font-size:11px;color:var(--dim);font-family:var(--mono)}
+.log-cols{
+  display:grid;grid-template-columns:110px 1fr 130px 90px;
+  gap:12px;padding:8px 18px;
+  font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;
+  border-bottom:1px solid var(--border);
+}
+.log-row{
+  display:grid;grid-template-columns:110px 1fr 130px 90px;
+  gap:12px;padding:11px 18px;border-bottom:1px solid rgba(255,255,255,.03);
+  align-items:center;transition:background .12s;cursor:pointer;
+  animation:slideDown .25s ease;
+}
+.log-row:hover{background:rgba(255,255,255,.025)}
+.log-time{font-family:var(--mono);font-size:11px;color:var(--dim)}
+.log-station{font-size:12px;font-weight:600}
+.log-detail{font-size:11px;color:var(--red);margin-top:2px}
+.log-when{font-size:11px;color:var(--dim)}
+.conf-bar-wrap{display:flex;align-items:center;gap:7px}
+.conf-bar-bg{height:4px;flex:1;background:var(--border);border-radius:2px;overflow:hidden}
+.conf-bar-fill{height:100%;border-radius:2px;transition:width .5s ease}
+.conf-val{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:32px}
+
+/* ── Modal for snapshot ── */
+#modal{
+  display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);
+  z-index:100;align-items:center;justify-content:center;
+}
+#modal.open{display:flex;animation:fadeIn .2s ease}
+.modal-box{
+  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  padding:24px;max-width:560px;width:90%;
+}
+.modal-img{width:100%;border-radius:8px;margin-bottom:14px;border:1px solid var(--border)}
+.modal-close{
+  margin-top:14px;width:100%;padding:9px;background:var(--border);
+  border:none;border-radius:8px;color:var(--text);font-family:var(--sans);
+  font-size:13px;cursor:pointer;font-weight:600;
+}
+.modal-close:hover{background:var(--muted)}
+
+/* ── Login ── */
+#login-screen{
+  position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 25% 30%,rgba(0,229,255,.07) 0%,transparent 55%),
+             radial-gradient(ellipse at 75% 70%,rgba(0,230,118,.05) 0%,transparent 50%),
+             var(--bg);
+  z-index:200;
+}
+.login-box{
+  background:var(--card);border:1px solid var(--border);border-radius:16px;
+  padding:36px;width:380px;
+}
+.login-logo{text-align:center;margin-bottom:28px}
+.login-logo-icon{font-size:44px;margin-bottom:8px}
+.login-title{font-size:22px;font-weight:800;letter-spacing:-.4px}
+.login-sub{font-size:12px;color:var(--dim);margin-top:4px}
+.field-label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.7px;margin-bottom:6px}
+.field-input{
+  width:100%;background:var(--surf);border:1px solid var(--border);border-radius:8px;
+  padding:10px 14px;color:var(--text);font-size:13px;font-family:var(--sans);
+  outline:none;transition:border-color .15s;margin-bottom:14px;
+}
+.field-input:focus{border-color:rgba(0,229,255,.4)}
+.btn-login{
+  width:100%;padding:11px;background:var(--accent);color:#000;border:none;
+  border-radius:8px;font-family:var(--sans);font-size:14px;font-weight:800;
+  cursor:pointer;transition:opacity .15s;margin-top:4px;letter-spacing:.3px;
+}
+.btn-login:hover{opacity:.88}
+.login-hint{
+  margin-top:18px;padding:12px 14px;background:var(--surf);border-radius:8px;
+  font-size:11px;color:var(--dim);line-height:1.9;
+}
+.login-err{font-size:12px;color:var(--red);text-align:center;height:16px;margin-bottom:4px}
+.scan-wrap{
+  position:relative;overflow:hidden;background:var(--surf);
+  border:1px solid var(--border);border-radius:8px;height:6px;margin-bottom:18px;
+}
+.scan-line{
+  position:absolute;top:0;left:-40%;width:40%;height:100%;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  animation:scan 2s linear infinite;
+}
+
+/* ── Tabs ── */
+.tab-bar{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab-btn{
+  padding:9px 16px;background:transparent;border:none;font-family:var(--sans);
+  font-size:13px;font-weight:600;color:var(--dim);cursor:pointer;
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;
+}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-btn:not(.active):hover{color:var(--text)}
+.tab-panel{display:none}.tab-panel.active{display:block;animation:fadeIn .2s ease}
+
+.empty-log{padding:28px;text-align:center;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ LOGIN ════════════════════ -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-icon">🏭</div>
+      <div class="login-title">AssemblyGuard</div>
+      <div class="login-sub">Smart Assembly Anomaly Monitor</div>
+    </div>
+    <div class="scan-wrap"><div class="scan-line"></div></div>
+    <div class="field-label">Username</div>
+    <input class="field-input" id="l-user" placeholder="engineer" autocomplete="off"/>
+    <div class="field-label">Password</div>
+    <input class="field-input" id="l-pass" type="password" placeholder="••••••••"/>
+    <div class="login-err" id="l-err"></div>
+    <button class="btn-login" id="l-btn">Sign In →</button>
+    <div class="login-hint">
+      Demo logins:<br>
+      <code>engineer</code> / <code>station123</code><br>
+      <code>naveen</code> / <code>jetson</code><br>
+      <code>admin</code> / <code>admin123</code>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ MODAL ════════════════════ -->
+<div id="modal">
+  <div class="modal-box">
+    <div style="font-size:14px;font-weight:700;margin-bottom:12px" id="modal-title">Anomaly Snapshot</div>
+    <img id="modal-img" class="modal-img" src="" alt="snapshot"/>
+    <div id="modal-detail" style="font-size:12px;color:var(--dim);line-height:1.9"></div>
+    <button class="modal-close" onclick="closeModal()">Close</button>
+  </div>
+</div>
+
+<!-- ════════════════════ APP ════════════════════ -->
+<div id="app" style="display:none">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div class="logo">
+      <div class="logo-icon">⚙️</div>
+      <div>
+        <div class="logo-text">AssemblyGuard</div>
+        <div class="logo-sub">Live Monitor v2.0</div>
+      </div>
+    </div>
+    <nav>
+      <button class="nav-item active" onclick="showTab('overview',this)">
+        <span class="icon">📊</span> Overview
+      </button>
+      <button class="nav-item" onclick="showTab('station',this)">
+        <span class="icon">📹</span> Station Live
+      </button>
+      <button class="nav-item" onclick="showTab('log',this)">
+        <span class="icon">⚠️</span> Anomaly Log
+        <span class="nav-badge" id="badge-count">0</span>
+      </button>
+      <button class="nav-item" onclick="showTab('analytics',this)">
+        <span class="icon">📈</span> Analytics
+      </button>
+      <button class="nav-item" onclick="showTab('setup',this)">
+        <span class="icon">🔧</span> Setup Guide
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="user-avatar" id="user-avatar">E</div>
+        <div>
+          <div class="user-name" id="user-name">Engineer</div>
+          <div class="user-role" id="user-role">Field Engineer</div>
+        </div>
+      </div>
+      <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div id="main">
+    <div id="topbar">
+      <div class="page-title" id="page-title">System Overview</div>
+      <div class="topbar-right">
+        <div class="alert-chip" id="alert-chip" style="display:none">
+          ⚠ <span id="alert-count">0</span> Active Alert
+        </div>
+        <div class="live-chip">
+          <div class="live-dot"></div>
+          LIVE
+        </div>
+        <div class="time-display" id="clock">--:--:--</div>
+      </div>
+    </div>
+
+    <div id="content">
+
+      <!-- ── OVERVIEW TAB ── -->
+      <div class="tab-panel active" id="tab-overview">
+        <div class="stat-grid">
+          <div class="stat-card" style="--accent-c:var(--accent)">
+            <div class="stat-label">Stations Online</div>
+            <div class="stat-value" id="s-online">0</div>
+            <div class="stat-sub">Connected via WiFi/USB</div>
+          </div>
+          <div class="stat-card" style="--accent-c:var(--red)">
+            <div class="stat-label">Active Alerts</div>
+            <div class="stat-value" id="s-alerts">0</div>
+            <div class="stat-sub">Right now</div>
+          </div>
+          <div class="stat-card" style="--accent-c:var(--amber)">
+            <div class="stat-label">Anomalies Today</div>
+            <div class="stat-value" id="s-today">0</div>
+            <div class="stat-sub">Last 24 hours</div>
+          </div>
+          <div class="stat-card" style="--accent-c:var(--green)">
+            <div class="stat-label">Total Inspections</div>
+            <div class="stat-value" id="s-total">0</div>
+            <div class="stat-sub">Since server start</div>
+          </div>
+        </div>
+
+        <div class="chart-grid">
+          <div class="chart-card">
+            <div class="chart-title">Anomalies — Last 12 Hours</div>
+            <div class="bar-chart" id="hourly-chart"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-title">Assembly Result Split</div>
+            <div class="donut-wrap">
+              <svg class="donut" viewBox="0 0 36 36" id="donut-svg">
+                <circle cx="18" cy="18" r="14" fill="none" stroke="#1c2535" stroke-width="4"/>
+                <circle cx="18" cy="18" r="14" fill="none" stroke="var(--red)" stroke-width="4"
+                  stroke-dasharray="0 88" stroke-dashoffset="22" id="donut-bad"
+                  style="transition:stroke-dasharray .8s ease"/>
+                <circle cx="18" cy="18" r="14" fill="none" stroke="var(--green)" stroke-width="4"
+                  stroke-dasharray="88 0" stroke-dashoffset="22" id="donut-good"
+                  style="transition:stroke-dasharray .8s ease"/>
+              </svg>
+              <div class="donut-legend">
+                <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div><span>Normal <b id="pct-ok">—</b></span></div>
+                <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div><span>Anomaly <b id="pct-bad">—</b></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="log-card">
+          <div class="log-header">
+            <div class="log-title">Recent Anomaly Events</div>
+            <div class="log-count" id="recent-count">0 events</div>
+          </div>
+          <div class="log-cols"><span>Time</span><span>Station / Issue</span><span>Detected</span><span>Confidence</span></div>
+          <div id="recent-log"></div>
+        </div>
+      </div>
+
+      <!-- ── STATION LIVE TAB ── -->
+      <div class="tab-panel" id="tab-station">
+        <div id="station-cards"></div>
+      </div>
+
+      <!-- ── ANOMALY LOG TAB ── -->
+      <div class="tab-panel" id="tab-log">
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap" id="log-filters"></div>
+        <div class="log-card">
+          <div class="log-header">
+            <div class="log-title">Anomaly Event Log</div>
+            <div class="log-count" id="log-total">0 records</div>
+          </div>
+          <div class="log-cols"><span>Time</span><span>Station / Issue</span><span>Detected</span><span>Confidence</span></div>
+          <div id="full-log" style="max-height:480px;overflow-y:auto"></div>
+        </div>
+      </div>
+
+      <!-- ── ANALYTICS TAB ── -->
+      <div class="tab-panel" id="tab-analytics">
+        <div class="stat-grid" style="grid-template-columns:repeat(3,1fr)">
+          <div class="stat-card" style="--accent-c:var(--red)">
+            <div class="stat-label">Total Anomalies</div>
+            <div class="stat-value" id="a-total">0</div>
+            <div class="stat-sub">All time</div>
+          </div>
+          <div class="stat-card" style="--accent-c:var(--green)">
+            <div class="stat-label">Detection Rate</div>
+            <div class="stat-value" id="a-rate">—</div>
+            <div class="stat-sub">Anomaly / inspection</div>
+          </div>
+          <div class="stat-card" style="--accent-c:var(--amber)">
+            <div class="stat-label">Avg Confidence</div>
+            <div class="stat-value" id="a-conf">—</div>
+            <div class="stat-sub">Across all detections</div>
+          </div>
+        </div>
+        <div class="chart-card" style="margin-bottom:14px">
+          <div class="chart-title">Anomalies — Last 12 Hours</div>
+          <div class="bar-chart" id="analytics-chart"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-title">Detection Confidence Distribution</div>
+          <div id="conf-bars" style="display:flex;flex-direction:column;gap:10px;margin-top:8px"></div>
+        </div>
+      </div>
+
+      <!-- ── SETUP GUIDE TAB ── -->
+      <div class="tab-panel" id="tab-setup">
+        <div style="max-width:640px">
+          <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:16px">
+            <div style="font-size:15px;font-weight:800;margin-bottom:16px;color:var(--accent)">🚀 Complete Deployment Guide</div>
+
+            <div style="display:flex;flex-direction:column;gap:18px">
+
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">STEP 1 — Deploy Cloud Server (Render.com — Free)</div>
+                <div style="background:var(--surf);border-radius:8px;padding:12px;font-size:12px;color:var(--dim);line-height:2;font-family:var(--mono)">
+                  1. Create account at render.com<br>
+                  2. New → Web Service → Connect GitHub repo<br>
+                  3. Upload the <b style="color:var(--text)">server/</b> folder<br>
+                  4. Build: <b style="color:var(--accent)">npm install</b><br>
+                  5. Start: <b style="color:var(--accent)">node server.js</b><br>
+                  6. Copy your URL → e.g. https://assemblyguard-abc.onrender.com
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">STEP 2 — Configure Jetson AI Script</div>
+                <div style="background:var(--surf);border-radius:8px;padding:12px;font-size:12px;color:var(--dim);line-height:2;font-family:var(--mono)">
+                  Open <b style="color:var(--accent)">jetson_ai.py</b><br>
+                  Set: <b style="color:var(--accent)">CLOUD_URL = "https://YOUR-APP.onrender.com"</b><br>
+                  Set: <b style="color:var(--accent)">CLASS_NAMES</b> to match your YOLOv8 data.yaml<br>
+                  Set: <b style="color:var(--accent)">REQUIRED_PARTS</b> for your assembly rule
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">STEP 3 — Run on Jetson Nano</div>
+                <div style="background:var(--surf);border-radius:8px;padding:12px;font-size:12px;color:var(--accent);line-height:2;font-family:var(--mono)">
+                  sudo nvpmodel -m 0<br>
+                  sudo jetson_clocks<br>
+                  python3 jetson_ai.py
+                </div>
+              </div>
+
+              <div>
+                <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">STEP 4 — Open Dashboard Anywhere</div>
+                <div style="background:var(--surf);border-radius:8px;padding:12px;font-size:12px;color:var(--dim);line-height:2;font-family:var(--mono)">
+                  Open <b style="color:var(--accent)">https://YOUR-APP.onrender.com</b><br>
+                  on any phone, tablet or laptop<br>
+                  Login with your credentials<br>
+                  <b style="color:var(--green)">✓ See live station status in real time</b>
+                </div>
+              </div>
+
+              <div style="background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.2);border-radius:8px;padding:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">⚡ Data Flow</div>
+                <div style="font-size:12px;color:var(--dim);font-family:var(--mono);line-height:2.2">
+                  Jetson Camera<br>
+                  &nbsp;&nbsp;↓ TensorRT inference (14+ FPS)<br>
+                  &nbsp;&nbsp;↓ Assembly check logic<br>
+                  &nbsp;&nbsp;↓ POST /api/heartbeat every 3s<br>
+                  &nbsp;&nbsp;↓ POST /api/anomaly (on detection)<br>
+                  Cloud Server (Render.com)<br>
+                  &nbsp;&nbsp;↓ WebSocket broadcast<br>
+                  This Dashboard (any device worldwide)<br>
+                  &nbsp;&nbsp;↓ Telegram alert simultaneously
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+// ════════════════════════════════════════════════
+//  AUTH
+// ════════════════════════════════════════════════
+const USERS = { engineer:"station123", naveen:"jetson", admin:"admin123" };
+let currentUser = null;
+
+function login(){
+  const u = document.getElementById("l-user").value.trim().toLowerCase();
+  const p = document.getElementById("l-pass").value;
+  const err = document.getElementById("l-err");
+  if(USERS[u] === p){
+    currentUser = { name: u, role: u==="admin"?"Admin":"Engineer" };
+    document.getElementById("login-screen").style.display = "none";
+    document.getElementById("app").style.display = "flex";
+    document.getElementById("user-name").textContent = u;
+    document.getElementById("user-role").textContent = currentUser.role;
+    document.getElementById("user-avatar").textContent = u[0].toUpperCase();
+    initSocket();
+  } else {
+    err.textContent = "Invalid username or password";
+    setTimeout(()=> err.textContent="", 2500);
+  }
+}
+function logout(){
+  if(socket) socket.disconnect();
+  document.getElementById("app").style.display = "none";
+  document.getElementById("login-screen").style.display = "flex";
+  document.getElementById("l-pass").value = "";
+  currentUser = null;
+}
+document.getElementById("l-btn").onclick = login;
+document.getElementById("l-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") login(); });
+
+// ════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════
+let state = {
+  stations:  {},
+  anomalies: [],
+  stats: { totalInspections: 0, totalAnomalies: 0 },
+  hourly:    {},  // { "HH": count }
+};
+let logFilter = null;
+
+// ════════════════════════════════════════════════
+//  SOCKET.IO
+// ════════════════════════════════════════════════
+let socket = null;
+function initSocket(){
+  // Connect to same host the dashboard is served from
+  socket = io(window.location.origin);
+
+  socket.on("init", data => {
+    state.stations  = data.stations  || {};
+    state.anomalies = data.anomalies || [];
+    state.stats     = data.stats     || state.stats;
+    buildHourly();
+    renderAll();
+    console.log("[WS] Connected & init received");
+  });
+
+  socket.on("heartbeat", data => {
+    state.stations[data.station_id] = { ...data, last_seen: Date.now() };
+    state.stats.totalInspections++;
+    renderStationCards();
+    renderStatCards();
+  });
+
+  socket.on("anomaly", data => {
+    state.anomalies.unshift(data);
+    if(state.anomalies.length > 500) state.anomalies.pop();
+    state.stats.totalAnomalies++;
+    const h = new Date(data.timestamp).getHours();
+    state.hourly[h] = (state.hourly[h] || 0) + 1;
+    renderAll();
+    // Flash notification
+    showToast(`⚠ Anomaly: ${data.station_label}`);
+  });
+
+  socket.on("disconnect", ()=>{ console.log("[WS] disconnected"); });
+}
+
+// ════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════
+function timeAgo(iso){
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if(s < 60)   return `${Math.round(s)}s ago`;
+  if(s < 3600) return `${Math.round(s/60)}m ago`;
+  return `${Math.round(s/3600)}h ago`;
+}
+function fmtTime(iso){ return new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function buildHourly(){
+  const now = new Date();
+  for(let i=11;i>=0;i--){
+    const h = new Date(now); h.setHours(h.getHours()-i);
+    const key = h.getHours();
+    if(state.hourly[key]===undefined) state.hourly[key]=0;
+  }
+  state.anomalies.forEach(a=>{
+    const h = new Date(a.timestamp).getHours();
+    state.hourly[h] = (state.hourly[h]||0) + 1;
+  });
+}
+
+function confColor(c){ return c>0.85?"var(--green)":c>0.65?"var(--amber)":"var(--red)"; }
+
+function logRowHTML(a){
+  const conf = a.confidence || 0;
+  const w    = Math.round(conf*100);
+  const hasImg = !!a.image_b64;
+  return `<div class="log-row" ${hasImg?`onclick="openModal(${a.id})"`:''}
+    title="${hasImg?'Click to view snapshot':'No snapshot'}" >
+    <span class="log-time">${fmtTime(a.timestamp)}</span>
+    <div>
+      <div class="log-station">${a.station_label||a.station_id}</div>
+      <div class="log-detail">${(a.details||[]).join(" · ")}</div>
+    </div>
+    <span class="log-when">${timeAgo(a.timestamp)}</span>
+    <div class="conf-bar-wrap">
+      <div class="conf-bar-bg">
+        <div class="conf-bar-fill" style="width:${w}%;background:${confColor(conf)}"></div>
+      </div>
+      <span class="conf-val">${w}%</span>
+    </div>
+  </div>`;
+}
+
+// ════════════════════════════════════════════════
+//  RENDER
+// ════════════════════════════════════════════════
+function renderAll(){
+  renderStatCards();
+  renderStationCards();
+  renderRecentLog();
+  renderFullLog();
+  renderCharts();
+  renderAnalytics();
+  updateBadge();
+}
+
+function renderStatCards(){
+  const onlineCount = Object.values(state.stations).filter(
+    s => (Date.now()-s.last_seen) < 15000).length;
+  const alertCount  = Object.values(state.stations).filter(s=>s.status==="ANOMALY").length;
+  const today       = state.anomalies.filter(
+    a=> new Date(a.timestamp) > new Date(Date.now()-86400000)).length;
+
+  document.getElementById("s-online").textContent = onlineCount;
+  document.getElementById("s-alerts").textContent = alertCount;
+  document.getElementById("s-today").textContent  = today;
+  document.getElementById("s-total").textContent  = state.stats.totalInspections;
+
+  const chip = document.getElementById("alert-chip");
+  if(alertCount > 0){
+    chip.style.display="flex";
+    document.getElementById("alert-count").textContent = alertCount;
+  } else {
+    chip.style.display="none";
+  }
+  document.getElementById("badge-count").textContent = state.anomalies.length;
+}
+
+function renderStationCards(){
+  const el = document.getElementById("station-cards");
+  const stns = Object.values(state.stations);
+  if(stns.length===0){
+    el.innerHTML=`<div style="padding:40px;text-align:center;color:var(--muted);font-size:14px">
+      🔌 Waiting for Jetson to connect...<br>
+      <span style="font-size:12px;font-family:var(--mono);margin-top:8px;display:block">
+        Make sure jetson_ai.py is running and CLOUD_URL is set correctly
+      </span></div>`;
+    return;
+  }
+  el.innerHTML = stns.map(s => {
+    const isOnline   = (Date.now()-s.last_seen) < 15000;
+    const isAnomaly  = s.status==="ANOMALY";
+    const cls        = isAnomaly?"anomaly":isOnline?"ok":"";
+    const pillCls    = isAnomaly?"pill-anomaly":isOnline?"pill-ok":"pill-idle";
+    const pillLbl    = isAnomaly?"⚠ ANOMALY":isOnline?"✓ OK":"— OFFLINE";
+    const parts      = s.part_counts || {};
+
+    // Recent anomalies for this station
+    const recents = state.anomalies.filter(a=>a.station_id===s.station_id).slice(0,3);
+
+    return `<div class="station-card ${cls}">
+      <div class="station-top">
+        <div class="station-name">
+          <span style="width:8px;height:8px;border-radius:50%;background:${isOnline?"var(--green)":"var(--muted)"};display:inline-block;${isOnline?"box-shadow:0 0 6px var(--green);animation:pulse 1.8s infinite":""}"></span>
+          ${s.station_label||s.station_id}
+        </div>
+        <span class="status-pill ${pillCls}">${pillLbl}</span>
+      </div>
+
+      <div class="station-metrics">
+        <div class="metric-box">
+          <div class="metric-lbl">FPS</div>
+          <div class="metric-val" style="color:var(--accent)">${s.fps||"—"}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-lbl">Status</div>
+          <div class="metric-val" style="color:${isAnomaly?"var(--red)":"var(--green)"};font-size:13px">${s.status||"IDLE"}</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-lbl">Last seen</div>
+          <div class="metric-val" style="font-size:13px;color:var(--dim)">${isOnline?"Live":timeAgo(new Date(s.last_seen).toISOString())}</div>
+        </div>
+      </div>
+
+      <div class="parts-row">
+        ${Object.entries(parts).map(([k,v])=>`<span class="part-tag">${k}: <b>${v}</b></span>`).join("")}
+      </div>
+
+      ${isAnomaly?`<div class="issues-box">
+        ${(s.details||["Anomaly detected"]).map(d=>`<div class="issue-item">${d}</div>`).join("")}
+      </div>`:""}
+
+      ${recents.length>0?`
+      <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px">Recent anomalies</div>
+        ${recents.map(a=>`<div style="font-size:11px;color:var(--dim);margin-bottom:4px;display:flex;gap:8px">
+          <span style="font-family:var(--mono)">${fmtTime(a.timestamp)}</span>
+          <span style="color:var(--red)">${(a.details||[]).join(", ")}</span>
+        </div>`).join("")}
+      </div>`:""}
+    </div>`;
+  }).join("");
+}
+
+function renderRecentLog(){
+  const el    = document.getElementById("recent-log");
+  const list  = state.anomalies.slice(0,8);
+  document.getElementById("recent-count").textContent = `${list.length} events`;
+  el.innerHTML = list.length===0
+    ? `<div class="empty-log">✓ No anomalies recorded yet</div>`
+    : list.map(logRowHTML).join("");
+}
+
+function renderFullLog(){
+  const el   = document.getElementById("full-log");
+  const filt = logFilter;
+  const list = filt
+    ? state.anomalies.filter(a=>a.station_id===filt)
+    : state.anomalies;
+  document.getElementById("log-total").textContent = `${list.length} records`;
+  el.innerHTML = list.length===0
+    ? `<div class="empty-log">✓ No anomalies recorded yet</div>`
+    : list.map(logRowHTML).join("");
+
+  // Filter buttons
+  const fb = document.getElementById("log-filters");
+  const stations = [...new Set(state.anomalies.map(a=>({id:a.station_id,lbl:a.station_label||a.station_id})).map(JSON.stringify))].map(JSON.parse);
+  fb.innerHTML = `<button onclick="setFilter(null,this)" style="${!logFilter?activeFilterStyle():filterStyle()}">All Stations</button>`
+    + stations.map(s=>`<button onclick="setFilter('${s.id}',this)" style="${logFilter===s.id?activeFilterStyle():filterStyle()}">${s.lbl}</button>`).join("");
+}
+
+function filterStyle(){ return `background:var(--card);color:var(--dim);border:1px solid var(--border);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:12px;font-family:var(--sans);font-weight:600`; }
+function activeFilterStyle(){ return `background:var(--accent);color:#000;border:1px solid var(--accent);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:12px;font-family:var(--sans);font-weight:800`; }
+function setFilter(id){ logFilter=id; renderFullLog(); }
+
+function renderCharts(){
+  const now   = new Date();
+  const hours = Array.from({length:12},(_,i)=>{ const h=new Date(now); h.setHours(h.getHours()-(11-i)); return h.getHours(); });
+  const vals  = hours.map(h=>state.hourly[h]||0);
+  const maxV  = Math.max(...vals, 1);
+
+  ["hourly-chart","analytics-chart"].forEach(id=>{
+    const el = document.getElementById(id);
+    el.innerHTML = hours.map((h,i)=>{
+      const pct = Math.round((vals[i]/maxV)*100);
+      const col = vals[i]>4?"var(--red)":"var(--accent)";
+      return `<div class="bar-wrap">
+        <div class="bar" style="height:${Math.max(pct*.65,vals[i]>0?4:0)}px;background:${col};opacity:.8"></div>
+        <span class="bar-lbl">${h}</span>
+      </div>`;
+    }).join("");
+  });
+
+  // Donut
+  const bad  = state.stats.totalAnomalies||0;
+  const good = Math.max((state.stats.totalInspections||0)-bad, 0);
+  const total= bad+good||1;
+  const circ = 2*Math.PI*14;
+  const badF = (bad/total)*circ;
+  const goodF= (good/total)*circ;
+  document.getElementById("donut-bad").setAttribute("stroke-dasharray",  `${badF.toFixed(1)} ${(circ-badF).toFixed(1)}`);
+  document.getElementById("donut-good").setAttribute("stroke-dasharray", `${goodF.toFixed(1)} ${(circ-goodF).toFixed(1)}`);
+  document.getElementById("donut-good").setAttribute("stroke-dashoffset", (circ/4 + badF + 0).toFixed(1));
+  document.getElementById("pct-ok").textContent  = `${Math.round((good/total)*100)}%`;
+  document.getElementById("pct-bad").textContent = `${Math.round((bad/total)*100)}%`;
+}
+
+function renderAnalytics(){
+  const total = state.anomalies.length;
+  const inspections = state.stats.totalInspections||1;
+  const rate  = ((total/inspections)*100).toFixed(1);
+  const avgConf = total>0
+    ? (state.anomalies.reduce((s,a)=>s+(a.confidence||0),0)/total*100).toFixed(1)
+    : "—";
+
+  document.getElementById("a-total").textContent = total;
+  document.getElementById("a-rate").textContent  = `${rate}%`;
+  document.getElementById("a-conf").textContent  = avgConf==="—"?"—":`${avgConf}%`;
+
+  // Confidence bands
+  const bands = [{lbl:"High (>85%)",min:.85,max:1,c:"var(--green)"},{lbl:"Medium (65-85%)",min:.65,max:.85,c:"var(--amber)"},{lbl:"Low (<65%)",min:0,max:.65,c:"var(--red)"}];
+  const el = document.getElementById("conf-bars");
+  el.innerHTML = bands.map(b=>{
+    const cnt = state.anomalies.filter(a=>a.confidence>=b.min&&a.confidence<b.max).length;
+    const pct = total>0?Math.round((cnt/total)*100):0;
+    return `<div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+        <span style="font-size:12px;color:var(--text)">${b.lbl}</span>
+        <span style="font-size:12px;font-family:var(--mono);color:var(--dim)">${cnt} events</span>
+      </div>
+      <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${b.c};border-radius:3px;transition:width .6s ease"></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function updateBadge(){
+  document.getElementById("badge-count").textContent = state.anomalies.length;
+}
+
+// ════════════════════════════════════════════════
+//  TAB SWITCHING
+// ════════════════════════════════════════════════
+const PAGE_TITLES = { overview:"System Overview", station:"Station Live", log:"Anomaly Log", analytics:"Analytics", setup:"Setup Guide" };
+function showTab(name, btn){
+  document.querySelectorAll(".tab-panel").forEach(p=>p.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(b=>b.classList.remove("active"));
+  document.getElementById(`tab-${name}`).classList.add("active");
+  btn.classList.add("active");
+  document.getElementById("page-title").textContent = PAGE_TITLES[name];
+}
+
+// ════════════════════════════════════════════════
+//  MODAL (anomaly snapshot)
+// ════════════════════════════════════════════════
+function openModal(id){
+  const a = state.anomalies.find(x=>x.id===id);
+  if(!a||!a.image_b64) return;
+  document.getElementById("modal-img").src = "data:image/jpeg;base64,"+a.image_b64;
+  document.getElementById("modal-title").textContent = `Anomaly — ${a.station_label} — ${fmtTime(a.timestamp)}`;
+  document.getElementById("modal-detail").innerHTML =
+    `<b>Issues:</b> ${(a.details||[]).join(", ")}<br>
+     <b>Confidence:</b> ${Math.round((a.confidence||0)*100)}%<br>
+     <b>Station:</b> ${a.station_label}`;
+  document.getElementById("modal").classList.add("open");
+}
+function closeModal(){ document.getElementById("modal").classList.remove("open"); }
+document.getElementById("modal").addEventListener("click", e=>{ if(e.target===e.currentTarget) closeModal(); });
+
+// ════════════════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════════════════
+function showToast(msg){
+  const t = document.createElement("div");
+  t.style.cssText=`position:fixed;bottom:24px;right:24px;background:var(--card);border:1px solid rgba(255,23,68,.4);border-radius:10px;padding:12px 18px;font-size:13px;color:var(--red);font-weight:600;z-index:300;animation:slideDown .3s ease;box-shadow:0 8px 32px rgba(0,0,0,.4)`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 4000);
+}
+
+// ════════════════════════════════════════════════
+//  CLOCK
+// ════════════════════════════════════════════════
+setInterval(()=>{
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+  // Re-render time-relative fields
+  if(currentUser) renderAll();
+}, 1000);
+</script>
+</body>
+</html>
